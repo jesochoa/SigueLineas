@@ -21,19 +21,19 @@ constexpr gpio_num_t MOTOR_BIN1 = GPIO_NUM_14; // SENTIDO MOTOR B
 constexpr gpio_num_t MOTOR_BIN2 = GPIO_NUM_12; // SENTIDO MOTOR B
 constexpr gpio_num_t MOTOR_PWMB = GPIO_NUM_32; // PWM MOTOR B
 
-int duty_motor_A = 0;
-int duty_motor_B = 0;
+int duty_motor_A = 0; //Duty motor
+int duty_motor_B = 0; //Duty motor
 
-// PWM para INFRAROJOS
-constexpr gpio_num_t INFRA_ROJOS = GPIO_NUM_25;
-int duty_infra_rojos = 512;
+
 
 esp_err_t set_pwm(void);                               // declaro la funcion para el PWM con LEDC
 esp_err_t set_pwm_duty(void);                          // Declaro la funcion DUTY del PWM
 esp_err_t set_pio(void);                               // Declaro la funcion PIO
+esp_err_t set_motor_adelante(void);                    // Motor hacia adelante
+esp_err_t set_motor_velocidad(void);                   // Meto la velocidad al motor
 esp_err_t oneshot_init(void);                          // Declaro el ADC
 esp_err_t leer_nuevo_sensor_infrarojos(int *sensores); // Lee el sensor infrarojos con un nueva funcion
-esp_err_t crea_error_sensor_infrarojos(int *sensores);     // Crea el error
+esp_err_t crea_error_sensor_infrarojos(int *sensores); // Crea el error
 
 
 // Configuro el ADC lo necesitamos para adc_oneshot_new_unit es para cada unit (canal)
@@ -42,79 +42,85 @@ adc_oneshot_unit_handle_t adc2_handle;
 
 // Tema 11: PID
 PID pid(50.0f, 2.0f, 10.0f);
-uint64_t last_call = esp_timer_get_time();
+uint64_t last_call = esp_timer_get_time(); //Lee el tiempo
 uint64_t curr_time = esp_timer_get_time();
 float result = 0;
 float lastLineValue;
+
+int adc[7]; // Declaro un array para leer los 8 sensores
 
 // Como usamos C++ con esta declaración conseguimos que el void app_main() no cambie de nombre
 extern "C" void app_main();
 void app_main()
 {
-    set_pwm(); // Inicializo PWM
-    set_pio(); // Inializo PIO
-
+    set_pwm();      // Inicializo PWM
+    set_pio();      // Inializo GPIO
     oneshot_init(); // Configura y Inializo el ADC
 
-    gpio_set_level(MOTOR_STANDBY, 1); // Activo el driver
-    duty_motor_A = 0;
-    duty_motor_B = 0;       // Pongo la velocidad MOTORES
-    duty_infra_rojos = 700; // PWM de los INFRAROJOS no lo utilizo
-    set_pwm_duty();         // Pone el DUTY de los motores y el INFRAROJOS
-
-    // El motor va hacia adelante
-    gpio_set_level(MOTOR_AIN1, 0);
-    gpio_set_level(MOTOR_AIN2, 1);
-    gpio_set_level(MOTOR_BIN1, 1);
-    gpio_set_level(MOTOR_BIN2, 0);
+    gpio_set_level(MOTOR_STANDBY, 1); // Activo el driver del motor   
+    set_pwm_duty();                   // Pone la velocidad (DUTY) de los motores
+    set_motor_adelante();             // El motor va hacia adelante
+   
 
     while (1)
     {
         // lectura de la linea negra
-        int adc[7]; // Declaro un array para leer los 8 sensores
+        
 
-        leer_nuevo_sensor_infrarojos(adc); // LEO LOS INFRAROJOS con nueva funcion
+        leer_nuevo_sensor_infrarojos(adc); // LEO LOS INFRAROJOS con la nueva funcion
         
         // Crear el error para PID
-        lastLineValue = crea_error_sensor_infrarojos(adc); // Da el error
+        lastLineValue = crea_error_sensor_infrarojos(adc); // Da el error segun este en la linea
 
         printf("lastLineValue = %.2f \n", lastLineValue);
 
         // printf("NUEVA D1  D2  D3  D4  D5  D6  D7  D8 \n");
         //  printf("     %i  %i %i %i %i %i %i %i\n", adc[0], adc[1], adc[2], adc[3], adc[4], adc[5], adc[6], adc[7]);
 
-        curr_time = esp_timer_get_time();
+        curr_time = esp_timer_get_time(); //Leo el tiempo para el PID
         result = pid.update(lastLineValue, curr_time - last_call);
 
         printf("result : %.2f \n", result);
         result = result / 100.0f;
-
+/*
         if (result > 100)
         {
             result = 100;
         }
-        /*
-        if (result < -100)
-        {
-            result = -100;
-        }
-        */
+*/
 
         printf("result  %.2f \n", result);
         last_call = curr_time;
 
-        duty_motor_A = ( 300 + (int)result);
-        duty_motor_B = ( 300 - (int)result);                 // Pongo la velocidad MOTORES
-        printf("Motor A:%i  Motor B:%i \n", duty_motor_A, duty_motor_B);
+        set_motor_velocidad(); //mando la velocidad a los motores Duty
 
-        set_pwm_duty(); // Pone el DUTY de los motores y el INFRAROJOS
+        printf("Motor A:%i  Motor B:%i \n", duty_motor_A, duty_motor_B);
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
+esp_err_t set_motor_velocidad(void)  // Meto la velocidad al motor
+{
+    duty_motor_A = ( 300 + (int)result);
+    duty_motor_B = ( 300 - (int)result);
 
-esp_err_t crea_error_sensor_infrarojos(int *sensores)
+    set_pwm_duty(); // Pone el DUTY de los motores                 
+
+    return ESP_OK; 
+}
+
+esp_err_t set_motor_adelante(void) // El motor va hacia adelante
+{
+    gpio_set_level(MOTOR_AIN1, 0);
+    gpio_set_level(MOTOR_AIN2, 1);
+    gpio_set_level(MOTOR_BIN1, 1);
+    gpio_set_level(MOTOR_BIN2, 0);
+
+    return ESP_OK; // Devuelvo
+}
+
+esp_err_t crea_error_sensor_infrarojos(int *sensores) //Crea el error de la linea
 {
     int32_t acum = 0;
     int32_t weightened = 0;
@@ -252,19 +258,11 @@ esp_err_t set_pwm(void) // Inicializacion del PWM con LEDC
     channelConfigMb.timer_sel = LEDC_TIMER_0;
     channelConfigMb.duty = 0;
 
-    // IR de los infrarojos
-    ledc_channel_config_t channelConfigIr = {}; // Creo el objeto del IR infrarojos
-    channelConfigIr.gpio_num = INFRA_ROJOS;     // GPIO 25
-    channelConfigIr.speed_mode = LEDC_HIGH_SPEED_MODE;
-    channelConfigIr.channel = LEDC_CHANNEL_5;
-    channelConfigIr.intr_type = LEDC_INTR_DISABLE;
-    channelConfigIr.timer_sel = LEDC_TIMER_0;
-    channelConfigIr.duty = 0; // Pongo 0
 
     // GRABO LA CONFIGURACION
     ledc_channel_config(&channelConfigMa); // motor A
     ledc_channel_config(&channelConfigMb); // motor B
-    ledc_channel_config(&channelConfigIr); // infrarojos
+    
 
     // Creo el objeto TIMER para todos los canales
     ledc_timer_config_t timerconfig = {};
@@ -278,20 +276,19 @@ esp_err_t set_pwm(void) // Inicializacion del PWM con LEDC
     return ESP_OK; // Devuelvo
 }
 
-esp_err_t set_pwm_duty(void) // Pone el DUTY
+esp_err_t set_pwm_duty(void) // Pongo el DUTY para los motores
 {
     ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_3, duty_motor_A);     // Cambio el duty MOTOR A
     ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_4, duty_motor_B);     // Cambio el duty MOTOR B
-    ledc_set_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_5, duty_infra_rojos); // Cambio el duty INFRAROJOS
-
+    
     ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_3); // Actualizo el duty motor A
     ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_4); // Actualizo el duty motor B
-    ledc_update_duty(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_5); // Actualizo el duty del infrarojos
+
 
     return ESP_OK; // Devuelvo
 }
 
-esp_err_t set_pio(void) // iNICIOLIZO LOS PIO
+esp_err_t set_pio(void) // INICIOLIZO LOS GPIO
 {
     // Configuro los GPIO para el MOTOR
     gpio_config_t config;
