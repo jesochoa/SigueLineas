@@ -35,6 +35,7 @@ esp_err_t set_motor_adelante(void);                    // Motor hacia adelante
 esp_err_t set_motor_velocidad(void);                   // Meto la velocidad al motor
 esp_err_t set_motor_on(bool driver_motor);             // enciendo el driver del motor
 esp_err_t leer_nuevo_sensor_infrarojos(int *sensores); // Lee el sensor infrarojos con un nueva funcion
+esp_err_t coche_on_off(void);                          // Mira el pulsador y enciende el coche o lo apaga
 float crea_error_sensor_infrarojos(int *sensores);     // Crea el error
 
 // Configuro el ADC lo necesitamos para adc_oneshot_new_unit es para cada unit (canal)
@@ -42,7 +43,8 @@ adc_oneshot_unit_handle_t adc1_handle;
 adc_oneshot_unit_handle_t adc2_handle;
 
 // Tema 11: PID
-PID pid(60.0f, 4.0f, 10.0f);
+PID pid(100.0f, 7.0f, 60.0f);
+
 uint64_t last_call = esp_timer_get_time(); // Lee el tiempo
 uint64_t curr_time = esp_timer_get_time();
 float result = 0;
@@ -63,44 +65,28 @@ void app_main()
 
     while (1)
     {
-        if (seguilineas_encendido)
-        {
-            set_motor_on(1); // Activo el driver del motor
-        }
-        else
-        {
-            set_motor_on(0); // Desactivo el driver del motor
-        }
+        // Funcion para encender o apagar motores
+        coche_on_off();
 
-        //Miro haber si he pulsado el boton de encendido
-        if (!gpio_get_level(BOTON_ENCENDIDO))
-        {
-            vTaskDelay(pdMS_TO_TICKS(500));
-            if (seguilineas_encendido)
-            {
-                seguilineas_encendido = false;
-            }else {seguilineas_encendido = true;}    
-        }
-        
         // lectura de la linea negra
         leer_nuevo_sensor_infrarojos(adc); // LEO LOS INFRAROJOS con la nueva funcion
 
         // Crear el error para PID
         lastLineValue = crea_error_sensor_infrarojos(adc); // Da el error segun este en la linea
 
-        printf("lastLineValue = %.2f \n", lastLineValue);
+        //printf("lastLineValue = %.2f \n", lastLineValue);
 
         curr_time = esp_timer_get_time(); // Leo el tiempo para el PID
         result = pid.update(lastLineValue, curr_time - last_call);
 
         result = result / 100.0f;
 
-        if (result > 600)
+        if (result > 700)
         {
-            result = 600;
+            result = 700;
         }
 
-        printf("result  %.2f \n", result);
+        //printf("result  %.2f \n", result);
 
         last_call = curr_time;
 
@@ -108,6 +94,34 @@ void app_main()
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+}
+
+esp_err_t coche_on_off(void)
+{
+    if (seguilineas_encendido)
+    {
+        set_motor_on(1); // Activo el driver del motor
+    }
+    else
+    {
+        set_motor_on(0); // Desactivo el driver del motor
+    }
+
+    // Miro haber si he pulsado el boton de encendido
+        if (!gpio_get_level(BOTON_ENCENDIDO))
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            if (seguilineas_encendido)
+            {
+                seguilineas_encendido = false;
+            }
+            else
+            {
+                seguilineas_encendido = true;
+            }
+        }
+
+    return ESP_OK;
 }
 
 esp_err_t set_motor_on(bool driver_motor) // enciendo el driver del motor
@@ -126,8 +140,8 @@ esp_err_t set_motor_on(bool driver_motor) // enciendo el driver del motor
 
 esp_err_t set_motor_velocidad(void) // Meto la velocidad al motor
 {
-    duty_motor_A = (300 + (int)result);
-    duty_motor_B = (300 - (int)result);
+    duty_motor_A = (400 + (int)result);
+    duty_motor_B = (400 - (int)result);
 
     if (duty_motor_A > 1023)
     {
@@ -147,7 +161,7 @@ esp_err_t set_motor_velocidad(void) // Meto la velocidad al motor
     }
 
     set_pwm_duty(); // Pone el DUTY de los motores
-    printf("Motor A:%i  Motor B:%i \n", duty_motor_A, duty_motor_B);
+    //printf("Motor A:%i  Motor B:%i \n", duty_motor_A, duty_motor_B);
 
     return ESP_OK;
 }
@@ -220,9 +234,9 @@ float crea_error_sensor_infrarojos(int *sensores) // Crea el error de la linea
         linea = (float)weightened / acum;
     }
 
-    printf("weightened = %.2f\n", (float)weightened);
-    printf("acum = %.2f\n", (float)acum);
-    printf("linea = %.2f\n", linea);
+    //printf("weightened = %.2f\n", (float)weightened);
+    //printf("acum = %.2f\n", (float)acum);
+    //printf("linea = %.2f\n", linea);
 
     return linea;
 }
